@@ -1,0 +1,9 @@
+INFO:root:SOCKS5 client ready for los-angeles.us
+INFO:root:los-angeles.us Quick Math 4.963s
+INFO:root:los-angeles.us Short Explanation 8.154s
+INFO:root:los-angeles.us Medium Analysis 11.820s
+INFO:root:los-angeles.us Code Generation 13.378s
+INFO:root:los-angeles.us Long Essay 11.918s
+INFO:root:los-angeles.us Technical Deep Dive 16.149s
+INFO:root:SOCKS5 client ready for new-york.us
+INFO:root:new-york.us Quick Math 4.156s
