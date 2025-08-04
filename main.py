@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+
 from config.settings import Config
 from src.utils import ValidationUtils
 from src.socks5_test_runner import SOCKS5TestRunner
@@ -20,7 +21,7 @@ def parse():
     p.add_argument("--delay", type=int, default=Config.API_DELAY,
                    help="Delay between API calls in seconds")
     p.add_argument("--test-mode", choices=["total", "ttfb", "both"], default="total",
-                   help="Test mode: total response time, TTFB, or both")
+                   help="Test mode: total response time, TTFB analysis, or both")
     p.add_argument("--verbose", action="store_true")
     return p.parse_args()
 
@@ -33,52 +34,55 @@ def main():
     Config.API_DELAY = args.delay
     
     # Validate environment
-    v = ValidationUtils.validate_environment()
-    if not v["valid"]:
+    validation = ValidationUtils.validate_environment()
+    if not validation["valid"]:
         print("❌ Environment validation failed:")
-        for error in v["errors"]:
+        for error in validation["errors"]:
             print(f"  - {error}")
         sys.exit(1)
     
     print("✅ Environment validation passed")
-    print(f"🚀 Starting speed test across {len(Config.NORDVPN_REGIONS)} regions...")
+    print(f"🚀 Starting analysis across {len(Config.NORDVPN_REGIONS)} regions...")
     print(f"📊 Test mode: {args.test_mode}")
     
+    # Run basic total response time tests
     if args.test_mode in ["total", "both"]:
-        print("\n🔄 Running total response time tests...")
+        print("\n🔄 Running basic response time tests...")
         runner = SOCKS5TestRunner()
         results = runner.run(args.scenarios)
-        
         analyzer = SOCKS5RegionalAnalyzer(results)
         report_file = analyzer.save()
-        print(f"📄 Total time report saved to: {report_file}")
+        print(f"📄 Basic report saved to: {report_file}")
         
         # Print quick summary
-        print("\n🏆 Total Time Results Summary:")
+        print("\n🏆 Basic Results Summary:")
         for region, data in results["regions"].items():
-            if data.get("connected") and data["summary"]["avg_response"]:
+            if data.get("connected") and data.get("summary", {}).get("avg_response"):
                 summary = data["summary"]
-                print(f"  ✅ {region}: Avg={summary['avg_response']:.3f}s, Success={summary['success_rate']:.1%}")
+                print(f"  ✅ {region}: {summary['avg_response']:.3f}s avg, {summary['success_rate']:.1%} success")
             else:
-                print(f"  ❌ {region}: Connection failed or no successful requests")
+                print(f"  ❌ {region}: Connection failed")
     
+    # Run enhanced TTFB analysis
     if args.test_mode in ["ttfb", "both"]:
-        print("\n⚡ Running TTFB tests...")
+        print("\n⚡ Running enhanced TTFB analysis...")
         ttfb_runner = SOCKS5TTFBTestRunner()
         ttfb_results = ttfb_runner.run(args.scenarios)
-        
         ttfb_analyzer = SOCKS5TTFBAnalyzer(ttfb_results)
-        ttfb_report_file = ttfb_analyzer.save()
-        print(f"📄 TTFB report saved to: {ttfb_report_file}")
+        ttfb_report_file = ttfb_analyzer.save_report()
+        print(f"📄 TTFB analysis saved to: {ttfb_report_file}")
         
-        # Print quick TTFB summary
-        print("\n⚡ TTFB Results Summary:")
-        for region, data in ttfb_results["regions"].items():
-            if data.get("connected") and data["summary"]["avg_ttfb"]:
-                summary = data["summary"]
-                print(f"  ✅ {region}: TTFB={summary['avg_ttfb']:.3f}s, Total={summary['avg_total']:.3f}s, Success={summary['success_rate']:.1%}")
-            else:
-                print(f"  ❌ {region}: Connection failed or no successful requests")
+        # Print comprehensive summary
+        global_stats = ttfb_results.get("global_stats", {})
+        if global_stats.get("fastest_region"):
+            print(f"\n⚡ TTFB Analysis Summary:")
+            print(f"  🏆 Fastest Region: {global_stats['fastest_region']}")
+            print(f"  🐌 Slowest Region: {global_stats['slowest_region']}")
+            print(f"  📊 Global Average: {global_stats['global_avg_ttfb']:.3f}s")
+            print(f"  📈 Performance Spread: {global_stats['performance_range_seconds']:.3f}s")
+            print(f"  ✅ Successful Measurements: {global_stats['total_successful_measurements']}")
+        else:
+            print("\n❌ No successful TTFB measurements obtained")
 
 if __name__ == "__main__":
     main()

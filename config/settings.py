@@ -43,11 +43,26 @@ class Config:
     RESULTS_DIR = os.getenv("RESULTS_DIR", "results")
     REPORTS_DIR = os.getenv("REPORTS_DIR", "reports")
 
+    # @classmethod
+    # def validate_config(cls):
+    #     missing = []
+    #     for var in ("NORDVPN_USERNAME","NORDVPN_PASSWORD","GEMINI_API_KEY"):
+    #         if not getattr(cls,var):
+    #             missing.append(var)
+    #     if missing:
+    #         raise ValueError(f"Missing env vars: {', '.join(missing)}")
     @classmethod
     def validate_config(cls):
-        missing = []
-        for var in ("NORDVPN_USERNAME","NORDVPN_PASSWORD","GEMINI_API_KEY"):
-            if not getattr(cls,var):
-                missing.append(var)
-        if missing:
-            raise ValueError(f"Missing env vars: {', '.join(missing)}")
+        errors = []
+        required_vars = ['NORDVPN_USERNAME', 'NORDVPN_PASSWORD', 'GEMINI_API_KEY']
+        
+        missing_vars = []
+        for var in required_vars:
+            if not getattr(cls, var):
+                missing_vars.append(var)
+        
+        if missing_vars:
+            errors.append(f"Missing env vars: {', '.join(missing_vars)}")
+        
+        if errors:
+            raise ValueError('; '.join(errors))
