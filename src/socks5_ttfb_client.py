@@ -42,9 +42,22 @@ class SOCKS5TTFBClient:
         logging.info(f"SOCKS5 TTFB client initialized for {region}")
 
     def _build_proxy(self, region):
-        """Build SOCKS5 proxy URL with credentials"""
-        domain = f"{region}.socks.nordhold.net"
+        """Build SOCKS5 proxy URL with correct NordVPN format"""
+        # Same logic as above
+        if region.endswith('.us'):
+            city = region.replace('.us', '')
+            domain = f"{city}.us.nordvpn.com"
+        elif region.endswith('.nl'):
+            city = region.replace('.nl', '')
+            domain = f"{city}.nl.nordvpn.com"
+        elif region.endswith('.se'):
+            city = region.replace('.se', '')
+            domain = f"{city}.se.nordvpn.com"
+        else:
+            domain = "us.nordvpn.com"
+        
         credentials = f"{Config.NORDVPN_USERNAME}:{Config.NORDVPN_PASSWORD}"
+        print(f"Debug: Connecting to SOCKS5 proxy at {domain}:{Config.NORDVPN_PORT}")
         return f"socks5://{credentials}@{domain}:{Config.NORDVPN_PORT}"
 
     def _on_request_start(self, request):

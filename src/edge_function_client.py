@@ -13,7 +13,7 @@ class EdgeFunctionClient:
     def __init__(self):
         self.deployment_name = "edge_function"
         self.url = Config.EDGE_FUNCTION_URL
-        self.timeout = Config.get_deployment_config(self.deployment_name)["max_timeout"]
+        self.timeout = 25
         
         # Connection statistics
         self.successful_requests = 0

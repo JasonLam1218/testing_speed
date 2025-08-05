@@ -53,10 +53,9 @@ class ServerlessFunctionClient:
     
     def _detect_cold_start(self, response_time):
         """
-        Detect cold start based on response time patterns
-        First request or unusually high response time indicates cold start
+        More realistic cold start detection for Gemini API
         """
-        cold_start_threshold = 2.0  # seconds
+        cold_start_threshold = 8.0  # Increase from 2.0 to 8.0 seconds
         
         if self.first_request:
             self.first_request = False
@@ -65,11 +64,10 @@ class ServerlessFunctionClient:
                 self.cold_start_time = response_time
                 return True
         elif response_time > cold_start_threshold:
-            # Potential cold start during testing
             self.cold_starts_detected += 1
             return True
-        
         return False
+
     
     def generate_content(self, prompt):
         """

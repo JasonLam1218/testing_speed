@@ -19,21 +19,22 @@ class Config:
 
     # SOCKS5 Regional testing
     NORDVPN_REGIONS = [
-        # US City-Specific Servers
-        "los-angeles.us",  # Los Angeles, US
-        "new-york.us",     # New York, US
-        "atlanta.us",      # Atlanta, US
-        "chicago.us",      # Chicago, US
-        "phoenix.us",      # Phoenix, US
-        "san-francisco.us", # San Francisco, US
-        # European City-Specific Servers
-        "amsterdam.nl",    # Amsterdam, Netherlands
-        "stockholm.se",    # Stockholm, Sweden
+        # US Servers (Common NordVPN format)
+        "us-losangeles",
+        "us-newyork", 
+        "us-atlanta",
+        "us-chicago",
+        "us-phoenix",
+        "us-sanfrancisco",
+        
+        # European Servers
+        "nl-amsterdam",
+        "se-stockholm"
     ]
 
     # Multi-deployment URLs (UPDATE THESE AFTER DEPLOYMENT)
-    EDGE_FUNCTION_URL = os.getenv("EDGE_FUNCTION_URL", "https://testing-speed-hdi2hod01-jasonlam1218s-projects.vercel.app/api/edge-gemini")
-    SERVERLESS_FUNCTION_URL = os.getenv("SERVERLESS_FUNCTION_URL", "https://testing-speed-hdi2hod01-jasonlam1218s-projects.vercel.app/api/serverless-gemini")
+    EDGE_FUNCTION_URL = os.getenv("EDGE_FUNCTION_URL", "https://testing-speed-iota.vercel.app/api/edge-gemini")
+    SERVERLESS_FUNCTION_URL = os.getenv("SERVERLESS_FUNCTION_URL", "https://testing-speed-iota.vercel.app/api/serverless-gemini")
 
     # Deployment configurations
     DEPLOYMENT_METHODS = ["edge_function", "serverless_function", "socks5_proxy"]
@@ -78,7 +79,7 @@ class Config:
                 "url": cls.EDGE_FUNCTION_URL,
                 "name": "Edge Function",
                 "expected_latency": "0.1-0.3s",
-                "max_timeout": 10
+                "max_timeout": 25
             },
             "serverless_function": {
                 "url": cls.SERVERLESS_FUNCTION_URL,

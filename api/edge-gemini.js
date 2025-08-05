@@ -5,6 +5,8 @@
 
 export const config = {
   runtime: 'edge',
+  regions: ['sfo1', 'iad1'], // Specify optimal regions
+  maxDuration: 30
 }
 
 export default async function handler(request) {
@@ -60,6 +62,7 @@ export default async function handler(request) {
     }
 
     // Call Gemini API
+    // In edge-gemini.js - Increase timeout
     const geminiResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
       {
@@ -68,18 +71,19 @@ export default async function handler(request) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: prompt,
-                },
-              ],
-            },
-          ],
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 4096, // Increase token limit
+            topK: 40,
+            topP: 0.95
+          }
         }),
+        // Add signal for timeout control
+        signal: AbortSignal.timeout(25000) // 25 seconds
       }
-    )
+    );
+
 
     if (!geminiResponse.ok) {
       const errorText = await geminiResponse.text()
