@@ -1,0 +1,13 @@
+{
+    "name": "gemini-speed-testing",
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+      "build": "echo 'No build required'"
+    },
+    "dependencies": {},
+    "engines": {
+      "node": "18.x"
+    }
+  }
+  

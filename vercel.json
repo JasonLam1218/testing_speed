@@ -1,0 +1,15 @@
+{
+    "$schema": "https://openapi.vercel.sh/vercel.json",
+    "functions": {
+      "api/edge-gemini.js": {
+        "runtime": "edge"
+      },
+      "api/serverless-gemini.js": {
+        "runtime": "nodejs18.x"
+      }
+    },
+    "env": {
+      "GEMINI_API_KEY": "@gemini-api-key"
+    }
+  }
+  
