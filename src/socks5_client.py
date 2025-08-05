@@ -15,26 +15,9 @@ class SOCKS5Client:
         logging.info(f"SOCKS5 client ready for {region}")
 
     def _build_proxy(self, region):
-        """Build SOCKS5 proxy URL with correct NordVPN format"""
-        # Handle different region formats
-        if region.endswith('.us'):
-            # US regions: los-angeles.us -> los-angeles.us.nordvpn.com
-            city = region.replace('.us', '')
-            domain = f"{city}.us.nordvpn.com"
-        elif region.endswith('.nl'):
-            # Netherlands: amsterdam.nl -> amsterdam.nl.nordvpn.com  
-            city = region.replace('.nl', '')
-            domain = f"{city}.nl.nordvpn.com"
-        elif region.endswith('.se'):
-            # Sweden: stockholm.se -> stockholm.se.nordvpn.com
-            city = region.replace('.se', '')
-            domain = f"{city}.se.nordvpn.com"
-        else:
-            # Fallback to generic US
-            domain = "us.nordvpn.com"
-        
+        """Build SOCKS5 proxy URL compatible with NordVPN socks.nordhold.net format"""
+        domain = f"{region}.socks.nordhold.net"
         cred = f"{Config.NORDVPN_USERNAME}:{Config.NORDVPN_PASSWORD}"
-        print(f"Debug: Connecting to SOCKS5 proxy at {domain}:{Config.NORDVPN_PORT}")
         return f"socks5://{cred}@{domain}:{Config.NORDVPN_PORT}"
 
     def test_connection(self):

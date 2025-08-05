@@ -19,17 +19,17 @@ class Config:
 
     # SOCKS5 Regional testing
     NORDVPN_REGIONS = [
-        # US Servers (Common NordVPN format)
-        "us-losangeles",
-        "us-newyork", 
-        "us-atlanta",
-        "us-chicago",
-        "us-phoenix",
-        "us-sanfrancisco",
+        # US City-Specific Servers - CORRECTED FORMAT
+        "los-angeles.us",      
+        "new-york.us",          
+        "atlanta.us",          
+        "chicago.us",          
+        "phoenix.us",          
+        "san-francisco.us",    
         
-        # European Servers
-        "nl-amsterdam",
-        "se-stockholm"
+        # European City-Specific Servers - CORRECTED FORMAT
+        "amsterdam.nl",        
+        "stockholm.se",        
     ]
 
     # Multi-deployment URLs (UPDATE THESE AFTER DEPLOYMENT)
