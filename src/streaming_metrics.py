@@ -78,6 +78,18 @@ class StreamingMetrics:
     def _calculate_streaming_metrics(self, raw_metrics):
         """Calculate advanced streaming performance metrics"""
         
+        # Extract values from raw_metrics dictionary
+        start_time = raw_metrics["start_time"]
+        end_time = raw_metrics["end_time"]
+        first_byte_time = raw_metrics["first_byte_time"]
+        total_chars = raw_metrics["total_characters"]
+        total_chunks = raw_metrics["total_chunks"]
+        chunks = raw_metrics["chunks"]
+        
+        # Handle case where first_byte_time might be None
+        if first_byte_time is None:
+            first_byte_time = start_time
+        
         # Basic timing metrics
         total_time = end_time - start_time
         time_to_first_byte = first_byte_time - start_time
@@ -89,11 +101,12 @@ class StreamingMetrics:
         
         # Streaming consistency metrics
         chunk_intervals = []
-        for i in range(1, len(chunks)):
-            interval = chunks[i]["timestamp"] - chunks[i-1]["timestamp"]
-            chunk_intervals.append(interval)
-            
-        avg_chunk_interval = statistics.mean(chunk_intervals)
+        if len(chunks) > 1:  # Add safety check
+            for i in range(1, len(chunks)):
+                interval = chunks[i]["timestamp"] - chunks[i-1]["timestamp"]
+                chunk_intervals.append(interval)
+        
+        avg_chunk_interval = statistics.mean(chunk_intervals) if chunk_intervals else 0
         chunk_interval_std = statistics.stdev(chunk_intervals) if len(chunk_intervals) > 1 else 0
         streaming_consistency = 1.0 / (1.0 + chunk_interval_std) if chunk_interval_std > 0 else 1.0
         
@@ -107,7 +120,7 @@ class StreamingMetrics:
                 "total_time": total_time,
                 "time_to_first_byte": time_to_first_byte,     # 📊 TTFB
                 "streaming_time": streaming_time,
-                "ttfb_percentage": (time_to_first_byte / total_time) * 100
+                "ttfb_percentage": (time_to_first_byte / total_time) * 100 if total_time > 0 else 0
             },
             "generation": {
                 "total_characters": total_chars,
