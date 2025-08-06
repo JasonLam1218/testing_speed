@@ -138,13 +138,20 @@ class MultiDeploymentAnalyzer:
         
         for method, data in self.results.get("deployments", {}).items():
             if method in ["edge_function", "serverless_function"]:
+                # ✅ Check both streaming_metrics and summary for TTFB data
                 streaming_data = data.get("streaming_metrics", {})
-                if streaming_data:
+                summary_data = data.get("summary", {})
+                
+                if streaming_data and streaming_data.get("avg_ttfb"):
                     method_name = self._format_method_name(method)
                     avg_ttfb = streaming_data.get("avg_ttfb", 0)
                     avg_chars_per_sec = streaming_data.get("avg_chars_per_second", 0)
-                    
                     summary.append(f"- **{method_name}**: TTFB {avg_ttfb:.3f}s, Rate {avg_chars_per_sec:.1f} chars/sec")
+                elif summary_data.get("avg_ttfb"):
+                    # Fallback to summary TTFB data
+                    method_name = self._format_method_name(method)
+                    avg_ttfb = summary_data.get("avg_ttfb", 0)
+                    summary.append(f"- **{method_name}**: TTFB {avg_ttfb:.3f}s (from summary)")
         
         return summary if summary else ["- No streaming data available"]
 
@@ -229,7 +236,7 @@ class MultiDeploymentAnalyzer:
         return tabulate(table_data, headers=headers, tablefmt="grid")
 
     def _generate_scenario_analysis(self):
-        """Generate scenario-by-scenario analysis - FIXED VERSION for SOCKS5"""
+        """Generate scenario-by-scenario analysis - FIXED VERSION for all deployment methods"""
         headers = ["Scenario", "Category", "Edge Function", "Serverless", "SOCKS5", "Best Method"]
         table_data = []
 
@@ -252,8 +259,8 @@ class MultiDeploymentAnalyzer:
         for scenario_name in sorted(all_scenarios):
             scenario_info = scenario_lookup.get(scenario_name, {})
             category = scenario_info.get("category", "unknown")
-
             times = {}
+
             for method in ["edge_function", "serverless_function", "socks5_proxy"]:
                 method_data = self.results.get("deployments", {}).get(method, {})
                 
@@ -268,7 +275,7 @@ class MultiDeploymentAnalyzer:
                         avg_time = scenario_data.get("avg_time") or scenario_data.get("avg")
                         if avg_time is not None:
                             all_region_times.append(avg_time)
-                    
+
                     # Calculate average across all successful regions
                     if all_region_times:
                         avg_time = statistics.mean(all_region_times)
@@ -299,6 +306,7 @@ class MultiDeploymentAnalyzer:
             ])
 
         return tabulate(table_data, headers=headers, tablefmt="grid")
+
 
     def _generate_streaming_analysis(self):
         """Generate detailed streaming and TTFB analysis"""

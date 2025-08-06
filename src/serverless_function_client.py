@@ -46,7 +46,9 @@ class ServerlessFunctionClient:
                 json={"prompt": test_prompt},
                 timeout=10
             )
+            
             return response.status_code == 200
+            
         except Exception as e:
             logging.error(f"Serverless Function connection test failed: {e}")
             return False
@@ -82,13 +84,11 @@ class ServerlessFunctionClient:
         try:
             # Precise timing measurement
             start_time = time.perf_counter()
-            
             response = self.client.post(
                 self.url,
                 json={"prompt": prompt},
                 timeout=self.timeout
             )
-            
             end_time = time.perf_counter()
             elapsed = end_time - start_time
             
@@ -102,7 +102,6 @@ class ServerlessFunctionClient:
             is_cold_start = self._detect_cold_start(elapsed)
             
             self.successful_requests += 1
-            
             status = "COLD START" if is_cold_start else "SUCCESS"
             logging.info(f"Serverless Function {status}: {elapsed:.3f}s, {len(text)} chars")
             
@@ -155,6 +154,7 @@ class ServerlessFunctionClient:
     def measure_streaming_performance(self, prompt):
         """
         Measure streaming performance with cold start awareness
+        FIXED VERSION - Includes all required streaming metrics
         """
         try:
             start_time = time.perf_counter()
@@ -165,44 +165,62 @@ class ServerlessFunctionClient:
             with self.client.stream('POST', self.url, json={"prompt": prompt}) as response:
                 response.raise_for_status()
                 content = b""
+                
                 for chunk in response.iter_bytes():
                     if first_byte_time is None:
                         first_byte_time = time.perf_counter()  # 📊 TTFB captured here
+                    
                     content += chunk
                     chunks_received += 1
                     total_bytes += len(chunk)
-
+            
             end_time = time.perf_counter()
-
+            
             # Calculate metrics
             total_time = end_time - start_time
             ttfb = first_byte_time - start_time if first_byte_time else total_time
             processing_time = end_time - first_byte_time if first_byte_time else 0
-
+            
             # Detect cold start (serverless-specific)
             is_cold_start = self._detect_cold_start(total_time)
-
+            
             # Parse response
             result = json.loads(content.decode('utf-8'))
             text = result.get("response", result.get("text", ""))
+            
+            # ✅ Calculate streaming consistency
+            streaming_consistency = 1.0 if chunks_received > 0 else 0.0
+            if chunks_received > 1:
+                avg_chunk_size = total_bytes / chunks_received if chunks_received > 0 else 0
+                chunk_variance = abs(len(text) / chunks_received - avg_chunk_size) if chunks_received > 0 else 0
+                streaming_consistency = max(0.0, 1.0 - (chunk_variance / avg_chunk_size)) if avg_chunk_size > 0 else 1.0
+            
+            # ✅ Calculate user experience score
+            user_experience_score = 0.5
+            if total_time > 0 and len(text) > 0:
+                responsiveness = min(1.0, 5.0 / ttfb) if ttfb > 0 else 0.5
+                throughput = min(1.0, (len(text) / total_time) / 100.0)
+                user_experience_score = (responsiveness * 0.6 + throughput * 0.4)
 
             return {
                 "success": True,
-                "total_time": total_time,              # 📈 Total response time
-                "ttfb": ttfb,                          # ⚡ Time To First Byte
-                "processing_time": processing_time,     # 🔄 Post-TTFB processing
+                "total_time": total_time,  # 📈 Total response time
+                "ttfb": ttfb,  # ⚡ Time To First Byte
+                "processing_time": processing_time,  # 🔄 Post-TTFB processing
                 "response": text,
                 "character_count": len(text),
                 "chunks_received": chunks_received,
                 "total_bytes": total_bytes,
                 "chars_per_second": len(text) / total_time if total_time > 0 else 0,
-                "is_cold_start": is_cold_start,        # 🧊 Cold start detection
+                "is_cold_start": is_cold_start,  # 🧊 Cold start detection
+                "streaming_consistency": streaming_consistency,  # ✅ Add this
+                "user_experience_score": user_experience_score,  # ✅ Add this
                 "method": "serverless_function",
                 "measurement_type": "streaming"
             }
+            
         except Exception as e:
             return {"success": False, "error": str(e), "method": "serverless_function"}
-
     
     def get_stats(self):
         """Get client statistics including cold start info"""
