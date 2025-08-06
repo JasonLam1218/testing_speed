@@ -132,34 +132,30 @@ class EdgeFunctionClient:
             
             with self.client.stream('POST', self.url, json={"prompt": prompt}) as response:
                 response.raise_for_status()
-                
                 content = b""
                 for chunk in response.iter_bytes():
                     if first_byte_time is None:
-                        first_byte_time = time.perf_counter()
-                    
+                        first_byte_time = time.perf_counter()  # 📊 TTFB captured here
                     content += chunk
                     chunks_received += 1
                     total_bytes += len(chunk)
-                
-                end_time = time.perf_counter()
-            
-            # Calculate metrics
+
+            end_time = time.perf_counter()
+
+            # Calculate comprehensive metrics
             total_time = end_time - start_time
             ttfb = first_byte_time - start_time if first_byte_time else total_time
             processing_time = end_time - first_byte_time if first_byte_time else 0
-            
+
             # Parse final response
             result = json.loads(content.decode('utf-8'))
             text = result.get("response", result.get("text", ""))
-            
-            self.successful_requests += 1
-            
+
             return {
                 "success": True,
-                "total_time": total_time,
-                "ttfb": ttfb,
-                "processing_time": processing_time,
+                "total_time": total_time,              # 📈 Total response time
+                "ttfb": ttfb,                          # ⚡ Time To First Byte
+                "processing_time": processing_time,     # 🔄 Post-TTFB processing
                 "response": text,
                 "character_count": len(text),
                 "chunks_received": chunks_received,
@@ -168,16 +164,9 @@ class EdgeFunctionClient:
                 "method": "edge_function",
                 "measurement_type": "streaming"
             }
-            
         except Exception as e:
-            self.failed_requests += 1
-            logging.error(f"Edge Function streaming error: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "method": "edge_function",
-                "measurement_type": "streaming"
-            }
+            return {"success": False, "error": str(e), "method": "edge_function"}
+
     
     def get_stats(self):
         """Get client statistics"""

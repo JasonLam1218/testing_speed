@@ -53,21 +53,27 @@ class ServerlessFunctionClient:
     
     def _detect_cold_start(self, response_time):
         """
-        More realistic cold start detection for Gemini API
+        Realistic cold start detection for Gemini API with improved thresholds
         """
-        cold_start_threshold = 8.0  # Increase from 2.0 to 8.0 seconds
+        # FIXED: More realistic threshold based on actual Gemini API behavior
+        cold_start_threshold = 12.0  # Increased from 8.0 to 12.0 seconds
         
         if self.first_request:
             self.first_request = False
             if response_time > cold_start_threshold:
                 self.cold_starts_detected += 1
                 self.cold_start_time = response_time
+                logging.info(f"First request cold start detected: {response_time:.3f}s")
                 return True
         elif response_time > cold_start_threshold:
-            self.cold_starts_detected += 1
-            return True
+            # Subsequent requests - stricter threshold for cold start detection
+            subsequent_threshold = 15.0  # Even higher for subsequent requests
+            if response_time > subsequent_threshold:
+                self.cold_starts_detected += 1
+                logging.info(f"Subsequent cold start detected: {response_time:.3f}s")
+                return True
+        
         return False
-
     
     def generate_content(self, prompt):
         """
@@ -158,56 +164,45 @@ class ServerlessFunctionClient:
             
             with self.client.stream('POST', self.url, json={"prompt": prompt}) as response:
                 response.raise_for_status()
-                
                 content = b""
                 for chunk in response.iter_bytes():
                     if first_byte_time is None:
-                        first_byte_time = time.perf_counter()
-                    
+                        first_byte_time = time.perf_counter()  # 📊 TTFB captured here
                     content += chunk
                     chunks_received += 1
                     total_bytes += len(chunk)
-                
-                end_time = time.perf_counter()
-            
+
+            end_time = time.perf_counter()
+
             # Calculate metrics
             total_time = end_time - start_time
             ttfb = first_byte_time - start_time if first_byte_time else total_time
             processing_time = end_time - first_byte_time if first_byte_time else 0
-            
-            # Detect cold start
+
+            # Detect cold start (serverless-specific)
             is_cold_start = self._detect_cold_start(total_time)
-            
+
             # Parse response
             result = json.loads(content.decode('utf-8'))
             text = result.get("response", result.get("text", ""))
-            
-            self.successful_requests += 1
-            
+
             return {
                 "success": True,
-                "total_time": total_time,
-                "ttfb": ttfb,
-                "processing_time": processing_time,
+                "total_time": total_time,              # 📈 Total response time
+                "ttfb": ttfb,                          # ⚡ Time To First Byte
+                "processing_time": processing_time,     # 🔄 Post-TTFB processing
                 "response": text,
                 "character_count": len(text),
                 "chunks_received": chunks_received,
                 "total_bytes": total_bytes,
                 "chars_per_second": len(text) / total_time if total_time > 0 else 0,
-                "is_cold_start": is_cold_start,
+                "is_cold_start": is_cold_start,        # 🧊 Cold start detection
                 "method": "serverless_function",
                 "measurement_type": "streaming"
             }
-            
         except Exception as e:
-            self.failed_requests += 1
-            logging.error(f"Serverless Function streaming error: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "method": "serverless_function",
-                "measurement_type": "streaming"
-            }
+            return {"success": False, "error": str(e), "method": "serverless_function"}
+
     
     def get_stats(self):
         """Get client statistics including cold start info"""

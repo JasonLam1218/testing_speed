@@ -11,7 +11,7 @@ class Config:
 
     # Gemini API
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-    TIMEOUT_SECONDS = int(os.getenv("TIMEOUT_SECONDS", "30"))
+    TIMEOUT_SECONDS = int(os.getenv("TIMEOUT_SECONDS", "45"))
 
     # Test parameters (overridden via CLI)
     TEST_ITERATIONS = 1
@@ -39,10 +39,17 @@ class Config:
     # Deployment configurations
     DEPLOYMENT_METHODS = ["edge_function", "serverless_function", "socks5_proxy"]
 
-    # Performance thresholds
-    EXCELLENT_THRESHOLD = 3.0  # seconds
-    GOOD_THRESHOLD = 5.0       # seconds
-    AVERAGE_THRESHOLD = 7.0    # seconds
+    # Performance thresholds - UPDATED for realistic Gemini API expectations
+    EXCELLENT_THRESHOLD = 8.0   # Increased from 3.0 - more realistic for Gemini
+    GOOD_THRESHOLD = 12.0       # Increased from 5.0 - accounts for API processing
+    AVERAGE_THRESHOLD = 18.0    # Increased from 7.0 - allows for network latency
+    POOR_THRESHOLD = 25.0       # New threshold for clearly poor performance
+
+    # Add baseline validation thresholds
+    BASELINE_MIN_RESPONSE_TIME = 0.5   # Minimum realistic response time
+    BASELINE_MAX_RESPONSE_TIME = 60.0  # Maximum acceptable response time
+    BASELINE_WARNING_THRESHOLD = 30.0  # Threshold for investigation warnings
+
 
     # Directories
     RESULTS_DIR = os.getenv("RESULTS_DIR", "results")

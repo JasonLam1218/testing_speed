@@ -75,19 +75,8 @@ class StreamingMetrics:
         
         return self._calculate_streaming_metrics(metrics)
     
-    def _calculate_streaming_metrics(self, raw_metrics: Dict) -> Dict[str, Any]:
-        """
-        Calculate advanced streaming performance metrics
-        """
-        if raw_metrics.get("error"):
-            return {"success": False, "error": raw_metrics["error"]}
-        
-        start_time = raw_metrics["start_time"]
-        first_byte_time = raw_metrics.get("first_byte_time")
-        end_time = raw_metrics.get("end_time")
-        
-        if not all([start_time, first_byte_time, end_time]):
-            return {"success": False, "error": "Incomplete timing data"}
+    def _calculate_streaming_metrics(self, raw_metrics):
+        """Calculate advanced streaming performance metrics"""
         
         # Basic timing metrics
         total_time = end_time - start_time
@@ -95,77 +84,46 @@ class StreamingMetrics:
         streaming_time = end_time - first_byte_time
         
         # Character generation metrics
-        character_timings = raw_metrics["character_timings"]
-        total_chars = raw_metrics["total_characters"]
-        
-        # Calculate generation rate
         chars_per_second = total_chars / total_time if total_time > 0 else 0
         chars_per_second_streaming = total_chars / streaming_time if streaming_time > 0 else 0
         
-        # Calculate streaming smoothness
+        # Streaming consistency metrics
         chunk_intervals = []
-        chunks = raw_metrics["chunks"]
-        
         for i in range(1, len(chunks)):
             interval = chunks[i]["timestamp"] - chunks[i-1]["timestamp"]
             chunk_intervals.append(interval)
-        
-        # Streaming consistency metrics
-        if chunk_intervals:
-            avg_chunk_interval = statistics.mean(chunk_intervals)
-            chunk_interval_std = statistics.stdev(chunk_intervals) if len(chunk_intervals) > 1 else 0
-            streaming_consistency = 1.0 / (1.0 + chunk_interval_std) if chunk_interval_std > 0 else 1.0
-        else:
-            avg_chunk_interval = 0
-            chunk_interval_std = 0
-            streaming_consistency = 0
+            
+        avg_chunk_interval = statistics.mean(chunk_intervals)
+        chunk_interval_std = statistics.stdev(chunk_intervals) if len(chunk_intervals) > 1 else 0
+        streaming_consistency = 1.0 / (1.0 + chunk_interval_std) if chunk_interval_std > 0 else 1.0
         
         # User-perceived metrics
         perceived_responsiveness = self._calculate_perceived_responsiveness(
             time_to_first_byte, chars_per_second_streaming, streaming_consistency
         )
         
-        # Quality metrics
-        quality_score = self._calculate_quality_score(
-            time_to_first_byte, chars_per_second, streaming_consistency
-        )
-        
-        metrics = {
-            "success": True,
+        return {
             "timing": {
                 "total_time": total_time,
-                "time_to_first_byte": time_to_first_byte,
+                "time_to_first_byte": time_to_first_byte,     # 📊 TTFB
                 "streaming_time": streaming_time,
-                "ttfb_percentage": (time_to_first_byte / total_time) * 100 if total_time > 0 else 0
+                "ttfb_percentage": (time_to_first_byte / total_time) * 100
             },
             "generation": {
                 "total_characters": total_chars,
                 "chars_per_second_overall": chars_per_second,
-                "chars_per_second_streaming": chars_per_second_streaming,
-                "generation_efficiency": chars_per_second / time_to_first_byte if time_to_first_byte > 0 else 0
+                "chars_per_second_streaming": chars_per_second_streaming
             },
             "streaming": {
-                "total_chunks": raw_metrics["total_chunks"],
+                "total_chunks": total_chunks,
                 "avg_chunk_interval": avg_chunk_interval,
-                "chunk_interval_std": chunk_interval_std,
-                "streaming_consistency": streaming_consistency,
-                "avg_chars_per_chunk": total_chars / raw_metrics["total_chunks"] if raw_metrics["total_chunks"] > 0 else 0
+                "streaming_consistency": streaming_consistency
             },
             "user_experience": {
                 "perceived_responsiveness": perceived_responsiveness,
-                "quality_score": quality_score,
-                "user_wait_time": time_to_first_byte,
-                "content_flow_rate": chars_per_second_streaming
-            },
-            "raw_data": {
-                "chunk_count": len(chunks),
-                "character_count": len(character_timings),
-                "chunk_intervals": chunk_intervals[:10]  # First 10 intervals for analysis
+                "quality_score": self._calculate_quality_score(time_to_first_byte, chars_per_second, streaming_consistency)
             }
         }
-        
-        self.metrics_history.append(metrics)
-        return metrics
     
     def _calculate_perceived_responsiveness(self, ttfb: float, streaming_rate: float, consistency: float) -> float:
         """
