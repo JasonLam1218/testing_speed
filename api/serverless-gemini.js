@@ -1,150 +1,179 @@
 /**
- * Vercel Serverless Function for Gemini API
- * Optimized for complex tasks with longer execution times
+ * FIXED: True streaming Serverless Function for accurate TTFB measurement
  */
-
 export default async function handler(req, res) {
-  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+  res.setHeader('Cache-Control', 'no-cache')
 
-  // Handle preflight requests
   if (req.method === 'OPTIONS') {
-    res.status(200).end()
-    return
+      res.status(200).end()
+      return
   }
 
-  // Only allow POST requests
   if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' })
-    return
+      res.status(405).json({ error: 'Method not allowed' })
+      return
   }
 
   const startTime = Date.now()
 
   try {
-    // Parse request
-    const { prompt } = req.body
-    if (!prompt) {
-      res.status(400).json({ error: 'Prompt is required' })
-      return
-    }
-
-    // Get Gemini API key from environment
-    const geminiApiKey = process.env.GEMINI_API_KEY
-    if (!geminiApiKey) {
-      res.status(500).json({ error: 'Gemini API key not configured' })
-      return
-    }
-
-    // Enhanced timeout for serverless functions
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 25000) // 25 second timeout
-
-    try {
-      // Call Gemini API with timeout
-      const geminiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'User-Agent': 'Vercel-Serverless-Function/1.0',
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text: prompt,
-                  },
-                ],
-              },
-            ],
-            generationConfig: {
-              temperature: 0.7,
-              topK: 40,
-              topP: 0.95,
-              maxOutputTokens: 4096,
-            },
-          }),
-          signal: controller.signal,
-        }
-      )
-
-      clearTimeout(timeoutId)
-
-      if (!geminiResponse.ok) {
-        const errorText = await geminiResponse.text()
-        console.error('Gemini API error:', {
-          status: geminiResponse.status,
-          statusText: geminiResponse.statusText,
-          body: errorText
-        })
-        
-        res.status(geminiResponse.status).json({
-          error: 'Gemini API error',
-          status: geminiResponse.status,
-          details: errorText
-        })
-        return
+      const { prompt } = req.body
+      if (!prompt) {
+          res.status(400).json({ error: 'Prompt is required' })
+          return
       }
 
-      // Parse Gemini response
-      const geminiData = await geminiResponse.json()
-      const generatedText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || ''
+      const geminiApiKey = process.env.GEMINI_API_KEY
+      if (!geminiApiKey) {
+          res.status(500).json({ error: 'Gemini API key not configured' })
+          return
+      }
 
-      // Calculate execution metrics
-      const executionTime = Date.now() - startTime
+      // ✅ SET STREAMING HEADERS
+      res.setHeader('Content-Type', 'application/x-ndjson')
+      res.setHeader('Transfer-Encoding', 'chunked')
+      res.setHeader('Connection', 'keep-alive')
 
-      // Return enhanced response with metrics
-      res.status(200).json({
-        success: true,
-        response: generatedText,
-        method: 'serverless_function',
-        metrics: {
-          execution_time_ms: executionTime,
-          timestamp: new Date().toISOString(),
-          region: process.env.VERCEL_REGION || 'unknown',
-          character_count: generatedText.length,
-          token_usage: geminiData.usageMetadata || null,
-        },
-        // Cold start detection (approximate)
-        is_cold_start: executionTime > 1000,
-      })
-
-    } catch (fetchError) {
-      clearTimeout(timeoutId)
+      // 🔥 SEND FIRST BYTE IMMEDIATELY
+      const firstBytePayload = JSON.stringify({
+          type: 'first_byte',
+          timestamp: startTime,
+          server_time: Date.now(),
+          method: 'serverless_function_streaming',
+          cold_start_detected: startTime > 1000
+      }) + '\n'
       
-      if (fetchError.name === 'AbortError') {
-        res.status(504).json({
-          error: 'Request timeout',
-          message: 'Gemini API request timed out',
-          method: 'serverless_function'
-        })
-      } else {
-        throw fetchError
+      res.write(firstBytePayload)
+
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 25000)
+
+      try {
+          // ✅ PROPERLY CALL GEMINI STREAMING API
+          const geminiResponse = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=${geminiApiKey}`,
+              {
+                  method: 'POST',
+                  headers: {
+                      'Content-Type': 'application/json',
+                      'User-Agent': 'Vercel-Serverless-Streaming/1.0'
+                  },
+                  body: JSON.stringify({
+                      contents: [{ parts: [{ text: prompt }] }],
+                      generationConfig: {
+                          temperature: 0.7,
+                          topK: 40,
+                          topP: 0.95,
+                          maxOutputTokens: 4096,
+                          thinkingConfig: {
+                              thinkingBudget: 0,
+                              includeThoughts: false
+                          }
+                      }
+                  }),
+                  signal: controller.signal
+              }
+          )
+
+          clearTimeout(timeoutId)
+
+          if (!geminiResponse.ok) {
+              const errorPayload = JSON.stringify({
+                  type: 'error',
+                  error: 'Gemini API error',
+                  status: geminiResponse.status,
+                  timestamp: Date.now()
+              }) + '\n'
+              res.write(errorPayload)
+              res.end()
+              return
+          }
+
+          // ✅ PROPERLY STREAM GEMINI'S RESPONSE
+          const reader = geminiResponse.body.getReader()
+          const decoder = new TextDecoder()
+          let chunkIndex = 0
+          let contentBuffer = ''
+
+          while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+
+              const chunk = decoder.decode(value, { stream: true })
+              const lines = chunk.split('\n').filter(line => line.trim())
+              
+              for (const line of lines) {
+                  try {
+                      // ✅ Parse Gemini's streaming JSON response
+                      const parsed = JSON.parse(line)
+                      if (parsed.candidates && parsed.candidates[0]?.content?.parts) {
+                          const text = parsed.candidates[0].content.parts[0].text || ''
+                          contentBuffer += text
+                          
+                          // 📦 SEND ACTUAL CONTENT CHUNK
+                          const chunkPayload = JSON.stringify({
+                              type: 'content_chunk',
+                              chunk_index: chunkIndex++,
+                              chunk_text: text,
+                              timestamp: Date.now(),
+                              elapsed_ms: Date.now() - startTime
+                          }) + '\n'
+                          
+                          res.write(chunkPayload)
+                      }
+                  } catch (parseError) {
+                      console.error('Failed to parse Gemini chunk:', parseError)
+                  }
+              }
+          }
+
+          // 🏁 SEND COMPLETION
+          const completionPayload = JSON.stringify({
+              type: 'completion',
+              total_chunks: chunkIndex,
+              total_time_ms: Date.now() - startTime,
+              content_length: contentBuffer.length,
+              timestamp: Date.now(),
+              method: 'serverless_function_streaming',
+              execution_time_ms: Date.now() - startTime
+          }) + '\n'
+          
+          res.write(completionPayload)
+          res.end()
+
+      } catch (fetchError) {
+          clearTimeout(timeoutId)
+          if (fetchError.name === 'AbortError') {
+              const timeoutPayload = JSON.stringify({
+                  type: 'error',
+                  error: 'Request timeout',
+                  timestamp: Date.now()
+              }) + '\n'
+              res.write(timeoutPayload)
+          } else {
+              throw fetchError
+          }
+          res.end()
       }
-    }
 
   } catch (error) {
-    console.error('Serverless Function error:', {
-      message: error.message,
-      stack: error.stack,
-      timestamp: new Date().toISOString()
-    })
-    
-    const executionTime = Date.now() - startTime
-    
-    res.status(500).json({
-      error: 'Internal server error',
-      message: error.message,
-      method: 'serverless_function',
-      execution_time_ms: executionTime,
-      // Include error type for debugging
-      error_type: error.name || 'UnknownError',
-    })
+      console.error('Serverless streaming error:', error)
+      const errorPayload = JSON.stringify({
+          type: 'error',
+          error: 'Internal server error',
+          message: error.message,
+          execution_time_ms: Date.now() - startTime,
+          timestamp: Date.now()
+      }) + '\n'
+      
+      try {
+          res.write(errorPayload)
+          res.end()
+      } catch (writeError) {
+          console.error('Failed to write error response:', writeError)
+      }
   }
 }

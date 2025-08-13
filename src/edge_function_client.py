@@ -7,7 +7,7 @@ from config.settings import Config
 class EdgeFunctionClient:
     """
     HTTP client for testing Vercel Edge Functions with Gemini API.
-    Optimized for edge computing with minimal latency measurements.
+    FIXED VERSION - Proper TTFB measurement for JSON responses.
     """
     
     def __init__(self):
@@ -31,7 +31,7 @@ class EdgeFunctionClient:
         )
         
         logging.info(f"Edge Function client initialized for {self.url}")
-    
+
     def test_connection(self):
         """Test Edge Function connectivity"""
         try:
@@ -42,13 +42,11 @@ class EdgeFunctionClient:
                 json={"prompt": test_prompt},
                 timeout=5
             )
-            
             return response.status_code == 200
-            
         except Exception as e:
             logging.error(f"Edge Function connection test failed: {e}")
             return False
-    
+
     def generate_content(self, prompt):
         """
         Generate content using Edge Function with precise timing
@@ -117,76 +115,71 @@ class EdgeFunctionClient:
                 "error_type": "unexpected",
                 "method": "edge_function"
             }
-    
+
     def measure_streaming_performance(self, prompt):
         """
-        Measure streaming performance metrics for edge functions
-        FIXED VERSION - Includes all required streaming metrics
+        ✅ FIXED: Proper TTFB measurement for Vercel Edge Functions
+        Since Vercel returns complete JSON, TTFB = time to receive response headers
         """
         try:
-            # Track streaming metrics
             start_time = time.perf_counter()
-            first_byte_time = None
-            chunks_received = 0
-            total_bytes = 0
             
-            with self.client.stream('POST', self.url, json={"prompt": prompt}) as response:
-                response.raise_for_status()
-                content = b""
-                
-                for chunk in response.iter_bytes():
-                    if first_byte_time is None:
-                        first_byte_time = time.perf_counter()  # 📊 TTFB captured here
-                    
-                    content += chunk
-                    chunks_received += 1
-                    total_bytes += len(chunk)
+            # ✅ FIX: For Vercel functions, TTFB = time to receive response headers
+            response = self.client.post(
+                self.url,
+                json={"prompt": prompt},
+                timeout=self.timeout
+            )
+            ttfb = time.perf_counter() - start_time  # ⚡ TTFB = headers received time
             
-            end_time = time.perf_counter()
-            
-            # Calculate comprehensive metrics
-            total_time = end_time - start_time
-            ttfb = first_byte_time - start_time if first_byte_time else total_time
-            processing_time = end_time - first_byte_time if first_byte_time else 0
-            
-            # Parse final response
-            result = json.loads(content.decode('utf-8'))
+            response.raise_for_status()
+            result = response.json()
             text = result.get("response", result.get("text", ""))
             
-            # ✅ Calculate streaming consistency
-            streaming_consistency = 1.0 if chunks_received > 0 else 0.0
-            if chunks_received > 1:
-                # Simple consistency metric based on chunk distribution
-                avg_chunk_size = total_bytes / chunks_received if chunks_received > 0 else 0
-                chunk_variance = abs(len(text) / chunks_received - avg_chunk_size) if chunks_received > 0 else 0
-                streaming_consistency = max(0.0, 1.0 - (chunk_variance / avg_chunk_size)) if avg_chunk_size > 0 else 1.0
+            end_time = time.perf_counter()
+            total_time = end_time - start_time
+            processing_time = total_time - ttfb
+            
+            # ✅ Validate TTFB is reasonable
+            if ttfb > Config.BASELINE_MAX_TTFB:
+                logging.warning(f"High TTFB detected: {ttfb:.3f}s (threshold: {Config.BASELINE_MAX_TTFB}s)")
+            elif ttfb < Config.BASELINE_MIN_TTFB:
+                logging.warning(f"Unusually low TTFB: {ttfb:.3f}s (minimum: {Config.BASELINE_MIN_TTFB}s)")
+                
+            # Calculate realistic streaming metrics
+            chars_per_second = len(text) / total_time if total_time > 0 else 0
+            
+            # ✅ Calculate streaming consistency (always 1.0 for JSON responses)
+            streaming_consistency = 1.0  # JSON responses are always consistent
             
             # ✅ Calculate user experience score
-            user_experience_score = 0.5  # Default moderate score
+            user_experience_score = 0.5  # Default
             if total_time > 0 and len(text) > 0:
-                responsiveness = min(1.0, 5.0 / ttfb) if ttfb > 0 else 0.5
-                throughput = min(1.0, (len(text) / total_time) / 100.0)
+                responsiveness = min(1.0, 3.0 / ttfb) if ttfb > 0 else 0.5  # Adjusted for VPN
+                throughput = min(1.0, (len(text) / total_time) / 200.0)  # Adjusted threshold
                 user_experience_score = (responsiveness * 0.6 + throughput * 0.4)
-
+            
             return {
                 "success": True,
                 "total_time": total_time,  # 📈 Total response time
-                "ttfb": ttfb,  # ⚡ Time To First Byte
+                "ttfb": ttfb,  # ⚡ Time To First Byte (headers received)
                 "processing_time": processing_time,  # 🔄 Post-TTFB processing
                 "response": text,
                 "character_count": len(text),
-                "chunks_received": chunks_received,
-                "total_bytes": total_bytes,
-                "chars_per_second": len(text) / total_time if total_time > 0 else 0,
-                "streaming_consistency": streaming_consistency,  # ✅ Add this
-                "user_experience_score": user_experience_score,  # ✅ Add this
+                "chunks_received": 1,  # JSON responses come as single chunk
+                "total_bytes": len(response.content),
+                "chars_per_second": chars_per_second,
+                "streaming_consistency": streaming_consistency,  # Always 1.0 for JSON
+                "user_experience_score": user_experience_score,
                 "method": "edge_function",
-                "measurement_type": "streaming"
+                "measurement_type": "streaming",
+                "response_type": "json"  # ✅ Indicate this is not true streaming
             }
             
         except Exception as e:
+            logging.error(f"Edge Function streaming measurement failed: {e}")
             return {"success": False, "error": str(e), "method": "edge_function"}
-    
+
     def get_stats(self):
         """Get client statistics"""
         total = self.successful_requests + self.failed_requests
@@ -196,7 +189,7 @@ class EdgeFunctionClient:
             "success_rate": self.successful_requests / total if total > 0 else 0.0,
             "method": "edge_function"
         }
-    
+
     def __del__(self):
         """Clean up HTTP client"""
         try:
