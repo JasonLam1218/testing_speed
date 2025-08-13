@@ -1,14 +1,16 @@
 export default async function handler(request) {
   const serverStartTime = Date.now()
   
+  // ✅ SOLUTION 1: Immediate headers + multiple content types
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, X-Start-Time',
-    'Access-Control-Expose-Headers': 'X-First-Byte-Time, X-Server-Start', // ✅ EXPOSE TTFB HEADERS
-    'X-First-Byte-Time': serverStartTime.toString(), // 🔥 IMMEDIATE TTFB HEADER
+    'Access-Control-Expose-Headers': 'X-First-Byte-Time, X-Server-Start, X-Processing-Time',
+    'X-First-Byte-Time': serverStartTime.toString(),
     'X-Server-Start': serverStartTime.toString(),
-    'Content-Type': 'text/event-stream', // ✅ USE SSE FORMAT
+    'X-Processing-Time': '0', // Will be updated
+    'Content-Type': 'text/plain', // ✅ Use plain text instead of SSE
     'Cache-Control': 'no-cache',
     'Connection': 'keep-alive'
   }
@@ -18,44 +20,26 @@ export default async function handler(request) {
   }
 
   if (request.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders }
-    })
+    return new Response('Method not allowed', { status: 405, headers: corsHeaders })
   }
 
   try {
     const { prompt } = await request.json()
-    if (!prompt) {
-      return new Response(JSON.stringify({ error: 'Prompt is required' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      })
-    }
-
-    const geminiApiKey = process.env.GEMINI_API_KEY
-    if (!geminiApiKey) {
-      return new Response(JSON.stringify({ error: 'Gemini API key not configured' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      })
-    }
-
-    // ✅ CREATE SSE STREAM (bypasses JSON buffering)
+    
+    // ✅ SOLUTION 2: Send immediate response with processing indicator
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          // 🔥 SEND IMMEDIATE SSE EVENT
-          const firstEvent = `event: first_byte\ndata: ${JSON.stringify({
-            type: 'first_byte',
-            server_time: serverStartTime,
-            method: 'edge_sse'
-          })}\n\n`
-          controller.enqueue(new TextEncoder().encode(firstEvent))
-
-          // ✅ PROPERLY CALL GEMINI STREAMING API
+          // 🔥 IMMEDIATE FIRST BYTE - Plain text format
+          const firstByte = `TTFB:${serverStartTime}\n`
+          controller.enqueue(new TextEncoder().encode(firstByte))
+          
+          // Small delay to ensure first byte is sent
+          await new Promise(resolve => setTimeout(resolve, 10))
+          
+          // Call Gemini API
           const geminiResponse = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=${geminiApiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=${process.env.GEMINI_API_KEY}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -65,11 +49,7 @@ export default async function handler(request) {
                   temperature: 0.1,
                   maxOutputTokens: 4096,
                   topK: 40,
-                  topP: 0.95,
-                  thinkingConfig: {
-                    thinkingBudget: 0,
-                    includeThoughts: false
-                  }
+                  topP: 0.95
                 }
               }),
               signal: AbortSignal.timeout(25000)
@@ -77,21 +57,14 @@ export default async function handler(request) {
           )
 
           if (!geminiResponse.ok) {
-            const errorEvent = `event: error\ndata: ${JSON.stringify({
-              type: 'error',
-              error: 'Gemini API error',
-              status: geminiResponse.status,
-              timestamp: Date.now()
-            })}\n\n`
-            controller.enqueue(new TextEncoder().encode(errorEvent))
+            controller.enqueue(new TextEncoder().encode(`ERROR:${geminiResponse.status}\n`))
             controller.close()
             return
           }
 
-          // ✅ PROPERLY STREAM GEMINI'S RESPONSE AS SSE
+          // Stream response
           const reader = geminiResponse.body.getReader()
           const decoder = new TextDecoder()
-          let chunkIndex = 0
           let contentBuffer = ''
 
           while (true) {
@@ -103,46 +76,24 @@ export default async function handler(request) {
 
             for (const line of lines) {
               try {
-                // ✅ Parse Gemini's streaming JSON response
                 const parsed = JSON.parse(line)
-                if (parsed.candidates && parsed.candidates[0]?.content?.parts) {
+                if (parsed.candidates?.[0]?.content?.parts) {
                   const text = parsed.candidates[0].content.parts[0].text || ''
                   contentBuffer += text
-
-                  // 📦 SEND ACTUAL CONTENT CHUNK AS SSE EVENT
-                  const contentEvent = `event: content\ndata: ${JSON.stringify({
-                    type: 'content_chunk',
-                    chunk_index: chunkIndex++,
-                    chunk_text: text,
-                    timestamp: Date.now(),
-                    elapsed_ms: Date.now() - serverStartTime
-                  })}\n\n`
-                  controller.enqueue(new TextEncoder().encode(contentEvent))
+                  // Send content directly
+                  controller.enqueue(new TextEncoder().encode(text))
                 }
               } catch (parseError) {
-                console.error('Failed to parse Gemini chunk:', parseError)
+                console.error('Parse error:', parseError)
               }
             }
           }
 
-          // 🏁 SEND COMPLETION EVENT
-          const completeEvent = `event: complete\ndata: ${JSON.stringify({
-            type: 'completion',
-            total_chunks: chunkIndex,
-            total_time_ms: Date.now() - serverStartTime,
-            content_length: contentBuffer.length,
-            timestamp: Date.now(),
-            method: 'edge_function_sse'
-          })}\n\n`
-          controller.enqueue(new TextEncoder().encode(completeEvent))
+          // End marker
+          controller.enqueue(new TextEncoder().encode(`\nEND:${Date.now() - serverStartTime}ms`))
 
         } catch (error) {
-          const errorEvent = `event: error\ndata: ${JSON.stringify({
-            type: 'error',
-            error: error.message,
-            timestamp: Date.now()
-          })}\n\n`
-          controller.enqueue(new TextEncoder().encode(errorEvent))
+          controller.enqueue(new TextEncoder().encode(`ERROR:${error.message}\n`))
         } finally {
           controller.close()
         }
@@ -152,14 +103,9 @@ export default async function handler(request) {
     return new Response(stream, { headers: corsHeaders })
 
   } catch (error) {
-    console.error('Edge Function streaming error:', error)
-    return new Response(JSON.stringify({
-      error: 'Internal server error',
-      message: error.message,
-      method: 'edge_function_sse'
-    }), {
+    return new Response(`ERROR: ${error.message}`, {
       status: 500,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      headers: corsHeaders
     })
   }
 }
