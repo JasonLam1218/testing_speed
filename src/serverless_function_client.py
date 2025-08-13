@@ -6,10 +6,8 @@ from config.settings import Config
 
 class ServerlessFunctionClient:
     """
-    HTTP client for testing Vercel Serverless Functions with TRUE STREAMING support.
-    Includes cold start detection and accurate first byte measurement.
+    ✅ FIXED: HTTP client with header-based TTFB measurement for Serverless Functions
     """
-    
     def __init__(self):
         self.deployment_name = "serverless_function"
         self.url = Config.SERVERLESS_FUNCTION_URL
@@ -29,12 +27,11 @@ class ServerlessFunctionClient:
             timeout=self.timeout,
             headers={
                 "User-Agent": "GeminiSpeedTest/1.0",
-                "Accept": "application/json",
+                "Accept": "text/event-stream",  # ✅ Accept SSE
                 "Content-Type": "application/json"
             },
             follow_redirects=True
         )
-        
         logging.info(f"Serverless Function client initialized for {self.url}")
 
     def test_connection(self):
@@ -52,9 +49,7 @@ class ServerlessFunctionClient:
             return False
 
     def _detect_cold_start(self, response_time, ttfb=None):
-        """
-        ✅ IMPROVED: Realistic cold start detection for VPN + Hong Kong setup
-        """
+        """✅ IMPROVED: Realistic cold start detection for VPN + Hong Kong setup"""
         # Adjusted thresholds for VPN overhead
         cold_start_threshold = 8.0  # Reduced from 12.0, accounting for VPN
         ttfb_cold_start_threshold = 2.5  # TTFB threshold for cold starts
@@ -73,6 +68,7 @@ class ServerlessFunctionClient:
             # Subsequent requests - stricter threshold
             subsequent_threshold = 10.0  # For subsequent requests
             subsequent_ttfb_threshold = 3.0
+            
             if response_time > subsequent_threshold or (ttfb and ttfb > subsequent_ttfb_threshold):
                 self.cold_starts_detected += 1
                 is_cold_start = True
@@ -81,9 +77,7 @@ class ServerlessFunctionClient:
         return is_cold_start
 
     def generate_content(self, prompt):
-        """
-        Generate content using Serverless Function with cold start detection
-        """
+        """Generate content using Serverless Function with cold start detection"""
         try:
             start_time = time.perf_counter()
             response = self.client.post(
@@ -93,31 +87,44 @@ class ServerlessFunctionClient:
             )
             end_time = time.perf_counter()
             elapsed = end_time - start_time
-            
+
             response.raise_for_status()
             
-            result = response.json()
-            text = result.get("response", result.get("text", ""))
+            # Parse SSE response for content
+            final_content = ""
+            buffer = response.text
+            events = buffer.split('\n\n')
             
+            for event in events:
+                if 'data: ' in event:
+                    try:
+                        data_line = [line for line in event.split('\n') if line.startswith('data: ')][0]
+                        json_data = data_line[6:]  # Remove 'data: '
+                        chunk_data = json.loads(json_data)
+                        if chunk_data.get('type') == 'content_chunk':
+                            final_content += chunk_data.get('chunk_text', '')
+                    except (json.JSONDecodeError, IndexError):
+                        continue
+
             # Detect cold start
             is_cold_start = self._detect_cold_start(elapsed)
-            
+
             self.successful_requests += 1
             status = "COLD START" if is_cold_start else "SUCCESS"
-            logging.info(f"Serverless Function {status}: {elapsed:.3f}s, {len(text)} chars")
-            
+            logging.info(f"Serverless Function {status}: {elapsed:.3f}s, {len(final_content)} chars")
+
             return {
                 "success": True,
                 "time": elapsed,
-                "response": text,
+                "response": final_content,
                 "method": "serverless_function",
                 "is_cold_start": is_cold_start,
                 "status_code": response.status_code,
                 "response_size": len(response.content),
-                "character_count": len(text),
+                "character_count": len(final_content),
                 "execution_time": elapsed - (0.1 if not is_cold_start else 0.5)
             }
-            
+
         except Exception as e:
             self.failed_requests += 1
             logging.error(f"Serverless Function ERROR: {type(e).__name__}: {e}")
@@ -149,7 +156,7 @@ class ServerlessFunctionClient:
                     header_first_byte_time = time.perf_counter() - start_time
                     logging.info(f"HEADER-BASED TTFB: {header_first_byte_time:.3f}s")
 
-                # Parse SSE stream (same logic as Edge Function)
+                # Parse SSE stream
                 buffer = ""
                 for chunk in response.iter_bytes():
                     if true_first_byte_time is None and len(chunk) > 0:
@@ -161,14 +168,35 @@ class ServerlessFunctionClient:
                         chunks_received += 1
                         total_bytes += len(chunk)
                         
-                        # Process SSE events (same parsing logic as above)
+                        # Process SSE events
                         while '\n\n' in buffer:
                             event_end = buffer.find('\n\n')
                             event_data = buffer[:event_end]
                             buffer = buffer[event_end + 2:]
                             
-                            # Parse and extract content...
-                            # (Same SSE parsing logic as Edge Function)
+                            # Parse SSE event
+                            lines = event_data.split('\n')
+                            event_type = None
+                            data = None
+                            
+                            for line in lines:
+                                if line.startswith('event: '):
+                                    event_type = line[7:].strip()
+                                elif line.startswith('data: '):
+                                    data = line[6:].strip()
+                            
+                            if data:
+                                try:
+                                    chunk_data = json.loads(data)
+                                    chunk_type = chunk_data.get('type')
+                                    
+                                    if chunk_type == 'content_chunk':
+                                        final_content += chunk_data.get('chunk_text', '')
+                                    elif chunk_type == 'completion':
+                                        break
+                                        
+                                except json.JSONDecodeError:
+                                    continue
 
             end_time = time.perf_counter()
             total_time = end_time - start_time
@@ -185,6 +213,16 @@ class ServerlessFunctionClient:
             processing_time = total_time - best_ttfb
             chars_per_second = len(final_content) / total_time if total_time > 0 else 0
             first_byte_percentage = (best_ttfb / total_time) * 100 if total_time > 0 else 0
+
+            # Calculate streaming metrics
+            streaming_consistency = 1.0
+            if best_ttfb > 0:
+                responsiveness = min(1.0, 2.0 / best_ttfb)
+                throughput = min(1.0, chars_per_second / 100.0)
+                cold_start_penalty = 0.8 if is_cold_start else 1.0
+                user_experience_score = (responsiveness * 0.7 + throughput * 0.3) * cold_start_penalty
+            else:
+                user_experience_score = 0.5
 
             self.successful_requests += 1
 
@@ -203,8 +241,8 @@ class ServerlessFunctionClient:
                 "total_bytes": total_bytes,
                 "chars_per_second": chars_per_second,
                 "is_cold_start": is_cold_start,
-                "streaming_consistency": 1.0,
-                "user_experience_score": 0.7 if not is_cold_start else 0.5,
+                "streaming_consistency": streaming_consistency,
+                "user_experience_score": user_experience_score,
                 "method": "serverless_function",
                 "measurement_type": "sse_streaming",
                 "ttfb_source": "header" if header_first_byte_time else "stream"
@@ -214,8 +252,6 @@ class ServerlessFunctionClient:
             self.failed_requests += 1
             logging.error(f"Serverless Function streaming measurement failed: {e}")
             return {"success": False, "error": str(e), "method": "serverless_function"}
-
-
 
     def get_stats(self):
         """Get client statistics including cold start info"""
